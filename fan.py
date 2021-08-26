@@ -25,6 +25,8 @@ DEACTIVED_FREQ = 20 # (seconds) How frequently to check when fan is not running
 EPSILON = 0.005
 LAST_VALUE = None
 
+HAS_VCGENCMD = None
+
 
 def double_equal(a, b, eps=EPSILON):
     return abs(a - b) <= eps
@@ -66,8 +68,22 @@ def set_pin(value):
 
 
 def get_temperature():
-    cmd = subprocess.run(["vcgencmd", "measure_temp"], capture_output=True)
-    return float(cmd.stdout.decode("utf-8").strip().split("=")[1].split("'")[0])
+    global HAS_VCGENCMD
+    
+    # Raspbian has `vcgencmd` but Ubuntu does not so uses thermal zone data
+    if HAS_VCGENCMD is None:
+        result = subprocess.run(["which", "vcgencmd"], capture_output=True)
+        HAS_VCGENCMD = (result.returncode == 0)
+
+    if HAS_VCGENCMD:
+        cmd = subprocess.run(["vcgencmd", "measure_temp"], capture_output=True)
+        return float(cmd.stdout.decode("utf-8").strip().split("=")[1].split("'")[0])
+    else:
+        zones = [f for f in os.listdir("/sys/class/thermal/") if f.startswith("thermal_zone")]
+        if len(zones) == 0:
+            raise Exception("Cannot read temperature - no vcgencmd and no thermal zones")
+        with open(os.path.join("/sys/class/thermal", zones[0], "temp"), encoding="utf-8") as f:
+            return float(f.read().strip()) / 1000
 
 
 def adjust_fan():
